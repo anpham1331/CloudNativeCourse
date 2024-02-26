@@ -40,11 +40,20 @@ func (s *server) GetMovieInfo(ctx context.Context, in *movieapi.MovieRequest) (*
 		reply.Director = val[1]
 		cast := strings.Split(val[2], ",")
 		reply.Cast = append(reply.Cast, cast...)
-
 	}
 
 	return reply, nil
+}
 
+// SetMovieInfo implements movieapi.MovieInfoServer
+func (s *server) SetMovieInfo(ctx context.Context, in *movieapi.MovieData) (*movieapi.Status, error) {
+	title := in.GetTitle()
+	log.Printf("Received MovieData for: %v", title)
+
+	// Store movie data in the database
+	moviedb[title] = []string{in.GetYear(), in.GetDirector(), strings.Join(in.GetCast(), ",")}
+
+	return &movieapi.Status{Code: "Success"}, nil
 }
 
 func main() {

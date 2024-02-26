@@ -1,4 +1,4 @@
-// Package main imlements a client for movieinfo service
+// Package main implements a client for movieinfo service
 package main
 
 import (
@@ -30,12 +30,28 @@ func main() {
 	if len(os.Args) > 1 {
 		title = os.Args[1]
 	}
+
 	// Timeout if server doesn't respond
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+
+	// Get Movie Info
 	r, err := c.GetMovieInfo(ctx, &movieapi.MovieRequest{Title: title})
 	if err != nil {
 		log.Fatalf("could not get movie info: %v", err)
 	}
 	log.Printf("Movie Info for %s %d %s %v", title, r.GetYear(), r.GetDirector(), r.GetCast())
+
+	// Set Movie Info
+	newMovieData := &movieapi.MovieData{
+		Title:    "New Movie",
+		Year:     "2024",
+		Director: "New Director",
+		Cast:     []string{"Actor1", "Actor2"},
+	}
+	status, err := c.SetMovieInfo(ctx, newMovieData)
+	if err != nil {
+		log.Fatalf("could not set movie info: %v", err)
+	}
+	log.Printf("Set Movie Info status: %s", status.GetCode())
 }
