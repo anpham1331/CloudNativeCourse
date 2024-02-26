@@ -1,4 +1,4 @@
-module github.com/apham1331/CloudNativeCourse
+module github.com/anpham1331/CloudNativeCourse
 
 go 1.22.0
 
