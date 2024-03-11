@@ -26,7 +26,12 @@ type OWMResponse struct {
 		Main string
 	}
 	Main struct {
-		Temp Temperature
+		Temp     Temperature
+		Pressure float64 `json:"pressure"`
+		Humidity float64 `json:"humidity"`
+	}
+	Wind struct {
+		Speed float64 `json:"speed"`
 	}
 }
 

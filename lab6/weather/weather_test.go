@@ -20,6 +20,9 @@ func TestParseResponse(t *testing.T) {
 	want := Conditions{
 		Summary:     "Clouds",
 		Temperature: 281.33,
+		Pressure:    1013.0,
+		Humidity:    70.0,
+		WindSpeed:   2.1,
 	}
 	got, err := ParseResponse(data)
 	if err != nil {
