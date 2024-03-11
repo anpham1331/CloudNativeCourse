@@ -1,8 +1,6 @@
 package main
 
-import (
-	"gitlab.com/arunravindran/cloudnativecourse/lab6-external-rest-api/weather"
-)
+import "github.com/anpham1331/CloudNativeCourse/lab6/weather"
 
 func main() {
 	weather.RunCLI()
