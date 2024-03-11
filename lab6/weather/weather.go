@@ -19,6 +19,9 @@ func (t Temperature) Fahrenheit() float64 {
 type Conditions struct {
 	Summary     string
 	Temperature Temperature
+	Pressure    float64
+	Humidity    float64
+	WindSpeed   float64
 }
 
 type OWMResponse struct {
@@ -123,5 +126,7 @@ func RunCLI() {
 		os.Exit(1)
 	}
 	fmt.Printf("%s %.1fº\n", conditions.Summary, conditions.Temperature.Fahrenheit())
-
+	fmt.Printf("Pressure: %.1f hPa\n", conditions.Pressure)
+	fmt.Printf("Humidity: %.1f%%\n", conditions.Humidity)
+	fmt.Printf("Wind Speed: %.1f m/s\n", conditions.WindSpeed)
 }
