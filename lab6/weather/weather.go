@@ -90,12 +90,16 @@ func ParseResponse(data []byte) (Conditions, error) {
 	if err != nil {
 		return Conditions{}, fmt.Errorf("invalid API response %s: %w", data, err)
 	}
+	fmt.Println("Parsed response:", resp)
 	if len(resp.Weather) < 1 {
 		return Conditions{}, fmt.Errorf("invalid API response %s: require at least one weather element", data)
 	}
 	conditions := Conditions{
 		Summary:     resp.Weather[0].Main,
 		Temperature: resp.Main.temp,
+		pressure:    resp.Main.pressure,
+		humidity:    resp.Main.humidity,
+		windspeed:   resp.Wind.Speed,
 	}
 	return conditions, nil
 }
