@@ -2,171 +2,155 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var client *mongo.Client
-var collection *mongo.Collection
-
 func main() {
-	// Connect to MongoDB
+	// Initialize MongoDB client
+	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://localhost:27017"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx := context.Background()
-	clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
-	client, err := mongo.Connect(ctx, clientOptions)
+	err = client.Connect(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer client.Disconnect(ctx)
 
-	// Ping the MongoDB
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Connected to MongoDB!")
+	// Initialize MongoDB collection
+	collection := client.Database("mydb").Collection("products")
 
-	// Set up the collection
-	collection = client.Database("testdb").Collection("items")
-
-	// HTTP Server
+	// Initialize HTTP server mux
 	mux := http.NewServeMux()
-	mux.HandleFunc("/list", listHandler)
-	mux.HandleFunc("/price", priceHandler)
-	mux.HandleFunc("/create", createHandler)
-	mux.HandleFunc("/update", updateHandler)
-	mux.HandleFunc("/delete", deleteHandler)
-	log.Fatal(http.ListenAndServe("localhost:8000", mux))
+	mux.HandleFunc("/list", listHandler(collection))
+	mux.HandleFunc("/price", priceHandler(collection))
+	mux.HandleFunc("/create", createHandler(collection))
+	mux.HandleFunc("/update", updateHandler(collection))
+	mux.HandleFunc("/delete", deleteHandler(collection))
+
+	log.Fatal(http.ListenAndServe(":8000", mux))
 }
 
-type Item struct {
-	Name  string  `json:"name"`
-	Price float32 `json:"price"`
+type Product struct {
+	Name  string  `bson:"name"`
+	Price float32 `bson:"price"`
 }
 
-func listHandler(w http.ResponseWriter, req *http.Request) {
-	cursor, err := collection.Find(context.Background(), nil)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error listing items: %s", err)
-		return
-	}
-	defer cursor.Close(context.Background())
-
-	// Check if cursor is nil
-	if cursor == nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error listing items: cursor is nil")
-		return
-	}
-
-	items := []Item{}
-	// Iterate over the cursor
-	for cursor.Next(context.Background()) {
-		var item Item
-		// Decode each document
-		if err := cursor.Decode(&item); err != nil {
-			log.Println("Error decoding item:", err)
-			continue // Skip this item and continue with the next one
+func listHandler(collection *mongo.Collection) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		cursor, err := collection.Find(context.Background(), nil)
+		if err != nil {
+			handleError(w, err)
+			return
 		}
-		items = append(items, item)
-	}
-	// Check for cursor error after iterating
-	if err := cursor.Err(); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error listing items: %s", err)
-		return
-	}
+		defer cursor.Close(context.Background())
 
-	// Encode the items to JSON and send the response
-	json.NewEncoder(w).Encode(items)
+		for cursor.Next(context.Background()) {
+			var product Product
+			err := cursor.Decode(&product)
+			if err != nil {
+				handleError(w, err)
+				return
+			}
+			fmt.Fprintf(w, "%s: $%.2f\n", product.Name, product.Price)
+		}
+	}
+}
+func priceHandler(collection *mongo.Collection) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		item := req.URL.Query().Get("item")
+		var product Product
+		err := collection.FindOne(context.Background(), bson.M{"name": item}).Decode(&product)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprintf(w, "no such item: %q\n", item)
+				return
+			}
+			handleError(w, err)
+			return
+		}
+		fmt.Fprintf(w, "%s: $%.2f\n", product.Name, product.Price)
+	}
 }
 
-func priceHandler(w http.ResponseWriter, req *http.Request) {
-	itemName := req.URL.Query().Get("item")
+func createHandler(collection *mongo.Collection) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		item := req.URL.Query().Get("item")
+		priceStr := req.URL.Query().Get("price")
+		price, err := strconv.ParseFloat(priceStr, 32)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "invalid price: %s\n", err)
+			return
+		}
 
-	var item Item
-	err := collection.FindOne(context.Background(), Item{Name: itemName}).Decode(&item)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, "No such item: %s", itemName)
-		return
+		product := Product{Name: item, Price: float32(price)}
+		_, err = collection.InsertOne(context.Background(), product)
+		if err != nil {
+			handleError(w, err)
+			return
+		}
+		fmt.Fprintf(w, "item %s created with price $%.2f\n", item, price)
 	}
-
-	json.NewEncoder(w).Encode(item)
 }
 
-func createHandler(w http.ResponseWriter, req *http.Request) {
-	itemName := req.URL.Query().Get("item")
-	priceStr := req.URL.Query().Get("price")
-	price, err := strconv.ParseFloat(priceStr, 32)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Invalid price: %s", err)
-		return
-	}
+func updateHandler(collection *mongo.Collection) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		item := req.URL.Query().Get("item")
+		priceStr := req.URL.Query().Get("price")
+		price, err := strconv.ParseFloat(priceStr, 32)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "invalid price: %s\n", err)
+			return
+		}
 
-	item := Item{Name: itemName, Price: float32(price)}
-	_, err = collection.InsertOne(context.Background(), item)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error creating item: %s", err)
-		return
-	}
+		update := bson.M{"$set": bson.M{"price": float32(price)}}
+		result, err := collection.UpdateOne(context.Background(), bson.M{"name": item}, update)
+		if err != nil {
+			handleError(w, err)
+			return
+		}
 
-	json.NewEncoder(w).Encode(item)
+		if result.MatchedCount == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintf(w, "no such item: %s\n", item)
+			return
+		}
+
+		fmt.Fprintf(w, "item %s updated with price $%.2f\n", item, price)
+	}
 }
 
-func updateHandler(w http.ResponseWriter, req *http.Request) {
-	itemName := req.URL.Query().Get("item")
-	priceStr := req.URL.Query().Get("price")
-	price, err := strconv.ParseFloat(priceStr, 32)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Invalid price: %s", err)
-		return
+func deleteHandler(collection *mongo.Collection) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		item := req.URL.Query().Get("item")
+		result, err := collection.DeleteOne(context.Background(), bson.M{"name": item})
+		if err != nil {
+			handleError(w, err)
+			return
+		}
+
+		if result.DeletedCount == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintf(w, "no such item: %s\n", item)
+			return
+		}
+
+		fmt.Fprintf(w, "item %s deleted\n", item)
 	}
-
-	filter := Item{Name: itemName}
-	update := Item{Name: itemName, Price: float32(price)}
-
-	result, err := collection.ReplaceOne(context.Background(), filter, update)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error updating item: %s", err)
-		return
-	}
-
-	if result.ModifiedCount == 0 {
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, "No such item: %s", itemName)
-		return
-	}
-
-	json.NewEncoder(w).Encode(update)
 }
 
-func deleteHandler(w http.ResponseWriter, req *http.Request) {
-	itemName := req.URL.Query().Get("item")
-
-	result, err := collection.DeleteOne(context.Background(), Item{Name: itemName})
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error deleting item: %s", err)
-		return
-	}
-
-	if result.DeletedCount == 0 {
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, "No such item: %s", itemName)
-		return
-	}
-
-	fmt.Fprintf(w, "Item %s deleted", itemName)
+func handleError(w http.ResponseWriter, err error) {
+	w.WriteHeader(http.StatusInternalServerError)
+	fmt.Fprintf(w, "internal server error: %s\n", err)
 }
