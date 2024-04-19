@@ -1,6 +1,6 @@
 module github.com/anpham1331/CloudNativeCourse
 
-go 1.22.0
+go 1.23.0
 
 require (
 	github.com/golang/protobuf v1.5.3 // indirect
